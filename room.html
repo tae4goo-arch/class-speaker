@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>班级小广播</title>
+  <script src="https://cdn.bootcdn.net/ajax/libs/paho-mqtt/1.0.1/mqttws31.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+      background: linear-gradient(135deg, #e0f2fe 0%, #f0fdf4 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      color: #334155;
+      padding: 20px;
+    }
+    .board-card {
+      background: #ffffff;
+      width: 100%;
+      max-width: 520px;
+      padding: 28px 24px;
+      border-radius: 20px;
+      box-shadow: 0 10px 30px rgba(148, 163, 184, 0.2);
+      text-align: center;
+      border: 2px solid #f1f5f9;
+    }
+    .icon-title { font-size: 36px; margin-bottom: 4px; }
+    h2 { font-size: 22px; color: #1e293b; margin-bottom: 14px; font-weight: 600; }
+    
+    .room-setting {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      margin-bottom: 14px;
+      background: #f8fafc;
+      padding: 8px 12px;
+      border-radius: 12px;
+      border: 1px solid #e2e8f0;
+    }
+    .room-setting label { font-size: 13px; color: #64748b; font-weight: 500; }
+    .room-input {
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      padding: 5px 10px;
+      font-size: 14px;
+      width: 150px;
+      text-align: center;
+      color: #1e293b;
+      outline: none;
+    }
+    .room-btn {
+      background: #64748b;
+      color: white;
+      border: none;
+      padding: 5px 12px;
+      border-radius: 6px;
+      font-size: 13px;
+      cursor: pointer;
+      font-weight: 500;
+    }
+    .room-btn:hover { background: #475569; }
+
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 14px;
+      background: #f8fafc;
+      border-radius: 20px;
+      font-size: 13px;
+      font-weight: 500;
+      color: #eab308;
+      margin-bottom: 14px;
+    }
+
+    /* 最新消息大卡片 */
+    .message-box {
+      background: #f8fafc;
+      border: 1px dashed #cbd5e1;
+      border-radius: 14px;
+      padding: 20px 16px;
+      min-height: 80px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 23px;
+      font-weight: 700;
+      color: #1d4ed8;
+      line-height: 1.5;
+      word-break: break-all;
+      margin-bottom: 16px;
+      transition: all 0.3s ease;
+    }
+    .message-box.active {
+      background: #eff6ff;
+      border-color: #93c5fd;
+      animation: pop 0.4s ease-out;
+    }
+    @keyframes pop {
+      0% { transform: scale(0.97); }
+      50% { transform: scale(1.02); }
+      100% { transform: scale(1); }
+    }
+
+    .btn-sound {
+      background: #3b82f6;
+      color: #ffffff;
+      border: none;
+      padding: 9px 20px;
+      border-radius: 25px;
+      font-size: 13px;
+      cursor: pointer;
+      font-weight: 500;
+      box-shadow: 0 4px 12px rgba(59, 130, 246, 0.25);
+      margin-bottom: 20px;
+    }
+    .btn-sound.ready { background: #10b981; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.25); }
+
+    /* 历史履历区域样式 */
+    .history-container {
+      border-top: 1px solid #f1f5f9;
+      padding-top: 14px;
+      text-align: left;
+    }
+    .history-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+    .history-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: #64748b;
+    }
+    .clear-btn {
+      background: none;
+      border: none;
+      font-size: 12px;
+      color: #94a3b8;
+      cursor: pointer;
+    }
+    .clear-btn:hover { color: #ef4444; }
+    
+    .history-list {
+      max-height: 160px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      padding-right: 4px;
+    }
+    /* 美化滚动条 */
+    .history-list::-webkit-scrollbar { width: 4px; }
+    .history-list::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+
+    .history-item {
+      background: #f8fafc;
+      padding: 8px 12px;
+      border-radius: 8px;
+      font-size: 14px;
+      color: #334155;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      border-left: 3px solid #3b82f6;
+    }
+    .history-time {
+      font-size: 11px;
+      color: #94a3b8;
+    }
+    .history-text {
+      font-weight: 500;
+      word-break: break-all;
+    }
+    .empty-tip {
+      text-align: center;
+      font-size: 12px;
+      color: #cbd5e1;
+      padding: 10px 0;
+    }
+  </style>
+</head>
+<body>
+  <div class="board-card">
+    <div class="icon-title">🔔</div>
+    <h2>班级温馨小贴士</h2>
+
+    <div class="room-setting">
+      <label>暗号:</label>
+      <input type="text" id="topicInput" class="room-input" placeholder="例如: class-1" />
+      <button class="room-btn" onclick="updateTopic()">切换</button>
+    </div>
+
+    <div id="status" class="status-badge">
+      <span>●</span> 正在连接中...
+    </div>
+
+    <!-- 最新一条置顶大卡片 -->
+    <div id="messageBox" class="message-box">
+      <span>今天也要元气满满哦 ✨</span>
+    </div>
+
+    <button id="toggleBtn" class="btn-sound" onclick="toggleAudio()">点击开启声音提醒</button>
+
+    <!-- 历史消息履历 -->
+    <div class="history-container">
+      <div class="history-header">
+        <span class="history-title">📋 消息履历</span>
+        <button class="clear-btn" onclick="clearHistory()">清空履历</button>
+      </div>
+      <div id="historyList" class="history-list">
+        <div id="emptyTip" class="empty-tip">暂无历史消息记录</div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const statusEl = document.getElementById("status");
+    const messageBox = document.getElementById("messageBox");
+    const toggleBtn = document.getElementById("toggleBtn");
+    const topicInput = document.getElementById("topicInput");
+    const historyList = document.getElementById("historyList");
+    const emptyTip = document.getElementById("emptyTip");
+
+    let currentTopic = localStorage.getItem("my_classroom_topic") || "school/grade7/class1";
+    topicInput.value = currentTopic;
+
+    let isAudioEnabled = false;
+    let client = null;
+
+    function speak(text) {
+      if (!window.speechSynthesis) return;
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = "zh-CN";
+      utterance.rate = 0.95;
+      window.speechSynthesis.speak(utterance);
+    }
+
+    function toggleAudio() {
+      if (!isAudioEnabled) {
+        isAudioEnabled = true;
+        toggleBtn.innerText = "✓ 声音提醒已开启（点击可关闭）";
+        toggleBtn.classList.add("ready");
+        speak("提醒助手已开启");
+      } else {
+        isAudioEnabled = false;
+        toggleBtn.innerText = "点击开启声音提醒";
+        toggleBtn.classList.remove("ready");
+        speak("提醒助手已关闭");
+      }
+    }
+
+    // 添加到履历列表
+    function addHistoryItem(time, text) {
+      if (emptyTip) {
+        emptyTip.style.display = "none";
+      }
+      const item = document.createElement("div");
+      item.className = "history-item";
+      item.innerHTML = `
+        <span class="history-time">${time}</span>
+        <span class="history-text">${text}</span>
+      `;
+      // 最新消息排在最上面
+      historyList.insertBefore(item, historyList.firstChild);
+
+      // 最多保留 20 条
+      if (historyList.children.length > 20) {
+        historyList.removeChild(historyList.lastChild);
+      }
+    }
+
+    function clearHistory() {
+      historyList.innerHTML = '<div id="emptyTip" class="empty-tip">暂无历史消息记录</div>';
+    }
+
+    function initClient() {
+      client = new Paho.MQTT.Client(
+        "broker.emqx.io", 
+        8084, 
+        "classroom_client_" + Math.random().toString(16).substr(2, 8)
+      );
+
+      client.onConnectionLost = () => {
+        statusEl.innerHTML = "<span>●</span> 网络连接中断，重连中...";
+        statusEl.style.color = "#ef4444";
+        setTimeout(connect, 3000);
+      };
+
+      client.onMessageArrived = (message) => {
+        let msgText = "";
+        let msgId = null;
+
+        try {
+          const payload = JSON.parse(message.payloadString);
+          msgId = payload.id;
+          msgText = payload.text;
+        } catch (e) {
+          msgText = message.payloadString;
+        }
+
+        const nowTime = new Date().toLocaleTimeString();
+
+        // 1. 更新顶部置顶大卡片
+        messageBox.innerText = msgText;
+        messageBox.classList.remove("active");
+        void messageBox.offsetWidth;
+        messageBox.classList.add("active");
+
+        // 2. 插入消息履历列表（带时间）
+        addHistoryItem(nowTime, msgText);
+
+        // 3. 语音播报
+        if (isAudioEnabled) {
+          speak(msgText);
+        }
+
+        // 4. 回传确认给办公室
+        if (msgId) {
+          const ackMsg = new Paho.MQTT.Message(JSON.stringify({
+            ackId: msgId,
+            status: isAudioEnabled ? "spoken" : "silent",
+            time: nowTime
+          }));
+          ackMsg.destinationName = currentTopic + "/ack";
+          client.send(ackMsg);
+        }
+      };
+
+      connect();
+    }
+
+    function connect() {
+      client.connect({
+        useSSL: true,
+        onSuccess: () => {
+          statusEl.innerHTML = `<span>●</span> 暗号【${currentTopic}】在线中`;
+          statusEl.style.color = "#10b981";
+          client.subscribe(currentTopic);
+        },
+        onFailure: () => {
+          statusEl.innerHTML = "<span>●</span> 连接等待中...";
+          statusEl.style.color = "#ef4444";
+          setTimeout(connect, 5000);
+        }
+      });
+    }
+
+    function updateTopic() {
+      const val = topicInput.value.trim();
+      if (!val) {
+        alert("暗号不能为空！");
+        return;
+      }
+      if (client && client.isConnected()) {
+        client.unsubscribe(currentTopic);
+        currentTopic = val;
+        localStorage.setItem("my_classroom_topic", currentTopic);
+        client.subscribe(currentTopic);
+        statusEl.innerHTML = `<span>●</span> 已切换至【${currentTopic}】`;
+        alert("暗号已切换为：" + currentTopic);
+      }
+    }
+
+    initClient();
+  </script>
+</body>
+</html>
